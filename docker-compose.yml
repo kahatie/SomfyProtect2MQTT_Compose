@@ -1,0 +1,59 @@
+version: "3.8"
+services:
+  #Conteneur Home Assistant
+  homeassistant:
+    image: ghcr.io/linuxserver/homeassistant:latest
+    container_name: homeassistant
+    environment:
+      - PUID=99
+      - PGID=100
+      - TZ=Europe/Paris
+    ports:
+      - 8123:8123
+    volumes:
+      - /mnt/user/appdata/homeassistant:/config
+    restart: unless-stopped
+    healthcheck:
+      test: wget --no-verbose --tries=1 --no-check-certificate --spider http://localhost:8123/static/icons/favicon.ico
+      interval: 10s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+  #Conteneur du broker MQTT Mosquitto
+  mosquitto:
+    image: eclipse-mosquitto
+    container_name: mqtt
+    expose:
+      - 1883
+    volumes:
+      - /mnt/user/appdata/mosquitto/config:/mosquitto/config
+      - /mnt/user/appdata/mosquitto/data:/mosquitto/data
+      - /mnt/user/appdata/mosquitto/log:/mosquitto/log
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-p", "1880", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 20s
+  #Conteneur Somfy Protect 
+  somfyprotect2mqtt:
+    image: minims/somfyprotect2mqtt
+    container_name: SomfyProtect2mqtt
+    depends_on:
+      - mosquitto
+    volumes:
+      - /mnt/user/appdata/somfyprotect2mqtt:/config
+  #Conteneur du streaming camera
+  go2rtc:
+    image: alexxit/go2rtc
+    container_name: go2rtc
+    network_mode: host       # important for WebRTC, HomeKit, UDP cameras
+    privileged: true         # only for FFmpeg hardware transcoding
+    restart: unless-stopped  # autorestart on fail or config change from WebUI
+    environment:
+      - TZ=Europe/Paris  # timezone in logs
+    volumes:
+      - /mnt/user/appdata/go2rtc:/config   # folder for go2rtc.yaml file (edit from WebUI)
+      - /mnt/user/appdata/somfyprotect2mqtt/somfyprotect2mqtt:/config/somfyprotect2mqtt:ro # folder of stream url
+      - /mnt/user/appdata/somfyprotect2mqtt/echo:/config/echo:ro # folder of echo script
